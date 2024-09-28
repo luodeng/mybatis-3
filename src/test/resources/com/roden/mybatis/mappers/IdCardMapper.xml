@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.roden.mybatis.dao.IdCardDAO">
+    <insert id="save" parameterType="com.roden.mybatis.domain.IdCardDO" keyColumn="id" useGeneratedKeys="true" keyProperty="id">
+        insert into id_card (id_card_no,id_card_name,status,create_time,update_time)values (#{idCardNo},#{idCardName},#{status},#{createTime},#{updateTime})
+    </insert>
+    <select id="getByIdCardNo">
+        select * from id_card where id_card_no = #{idCardNo}
+    </select>
+</mapper>

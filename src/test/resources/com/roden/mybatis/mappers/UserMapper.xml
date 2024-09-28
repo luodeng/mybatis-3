@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.roden.mybatis.dao.UserDAO">
+    <select id="getById" resultType="com.roden.mybatis.domain.UserDO">
+        select
+            id,
+            user_name userName,
+            birth_day birthDay,
+            create_time createTime
+        from user where id = #{id}
+    </select>
+    <select id="getByUserName" resultType="com.roden.mybatis.domain.UserDO">
+        select
+            id,
+            user_name userName,
+            birth_day birthDay,
+            create_time createTime
+        from user where user_name = #{userName}
+    </select>
+</mapper>
