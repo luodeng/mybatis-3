@@ -15,7 +15,9 @@
  */
 package org.apache.ibatis.mapping;
 
-import static org.junit.jupiter.api.Assertions.*;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.fail;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
@@ -47,6 +49,13 @@ class VendorDatabaseIdProviderTest {
   @Test
   void shouldProductNameBeReturnedIfPropertiesIsNull() throws Exception {
     VendorDatabaseIdProvider provider = new VendorDatabaseIdProvider();
+    assertEquals(PRODUCT_NAME, provider.getDatabaseId(mockDataSource()));
+  }
+
+  @Test
+  void shouldProductNameBeReturnedIfPropertiesIsEmpty() throws Exception {
+    VendorDatabaseIdProvider provider = new VendorDatabaseIdProvider();
+    provider.setProperties(new Properties());
     assertEquals(PRODUCT_NAME, provider.getDatabaseId(mockDataSource()));
   }
 

@@ -1,5 +1,5 @@
 /*
- *    Copyright 2009-2024 the original author or authors.
+ *    Copyright 2009-2025 the original author or authors.
  *
  *    Licensed under the Apache License, Version 2.0 (the "License");
  *    you may not use this file except in compliance with the License.
@@ -24,11 +24,22 @@ import java.lang.reflect.Type;
 import java.lang.reflect.TypeVariable;
 import java.lang.reflect.WildcardType;
 import java.util.Arrays;
+import java.util.Objects;
 
 /**
  * @author Iwao AVE!
+ * @author Vladimir Sitnikov
  */
 public class TypeParameterResolver {
+
+  public static Type[] resolveClassTypeParams(Class<?> classWithTypeParams, Class<?> childClass) {
+    TypeVariable<?>[] typeArgs = classWithTypeParams.getTypeParameters();
+    Type[] result = new Type[typeArgs.length];
+    for (int i = 0; i < typeArgs.length; i++) {
+      result[i] = resolveTypeVar(typeArgs[i], childClass, classWithTypeParams);
+    }
+    return result;
+  }
 
   /**
    * Resolve field type.
@@ -79,21 +90,26 @@ public class TypeParameterResolver {
   public static Type[] resolveParamTypes(Method method, Type srcType) {
     Type[] paramTypes = method.getGenericParameterTypes();
     Class<?> declaringClass = method.getDeclaringClass();
-    Type[] result = new Type[paramTypes.length];
-    for (int i = 0; i < paramTypes.length; i++) {
-      result[i] = resolveType(paramTypes[i], srcType, declaringClass);
+    return resolveTypes(paramTypes, srcType, declaringClass);
+  }
+
+  private static Type[] resolveTypes(Type[] types, Type srcType, Class<?> declaringClass) {
+    Type[] args = new Type[types.length];
+    for (int i = 0; i < types.length; i++) {
+      args[i] = resolveType(types[i], srcType, declaringClass);
     }
-    return result;
+    return args;
   }
 
   private static Type resolveType(Type type, Type srcType, Class<?> declaringClass) {
     if (type instanceof TypeVariable) {
       return resolveTypeVar((TypeVariable<?>) type, srcType, declaringClass);
-    }
-    if (type instanceof ParameterizedType) {
+    } else if (type instanceof ParameterizedType) {
       return resolveParameterizedType((ParameterizedType) type, srcType, declaringClass);
     } else if (type instanceof GenericArrayType) {
       return resolveGenericArrayType((GenericArrayType) type, srcType, declaringClass);
+    } else if (type instanceof WildcardType) {
+      return resolveWildcardType((WildcardType) type, srcType, declaringClass);
     } else {
       return type;
     }
@@ -102,59 +118,26 @@ public class TypeParameterResolver {
   private static Type resolveGenericArrayType(GenericArrayType genericArrayType, Type srcType,
       Class<?> declaringClass) {
     Type componentType = genericArrayType.getGenericComponentType();
-    Type resolvedComponentType = null;
-    if (componentType instanceof TypeVariable) {
-      resolvedComponentType = resolveTypeVar((TypeVariable<?>) componentType, srcType, declaringClass);
-    } else if (componentType instanceof GenericArrayType) {
-      resolvedComponentType = resolveGenericArrayType((GenericArrayType) componentType, srcType, declaringClass);
-    } else if (componentType instanceof ParameterizedType) {
-      resolvedComponentType = resolveParameterizedType((ParameterizedType) componentType, srcType, declaringClass);
-    }
+    Type resolvedComponentType = resolveType(componentType, srcType, declaringClass);
     if (resolvedComponentType instanceof Class) {
       return Array.newInstance((Class<?>) resolvedComponentType, 0).getClass();
+    } else {
+      return new GenericArrayTypeImpl(resolvedComponentType);
     }
-    return new GenericArrayTypeImpl(resolvedComponentType);
   }
 
   private static ParameterizedType resolveParameterizedType(ParameterizedType parameterizedType, Type srcType,
       Class<?> declaringClass) {
     Class<?> rawType = (Class<?>) parameterizedType.getRawType();
     Type[] typeArgs = parameterizedType.getActualTypeArguments();
-    Type[] args = new Type[typeArgs.length];
-    for (int i = 0; i < typeArgs.length; i++) {
-      if (typeArgs[i] instanceof TypeVariable) {
-        args[i] = resolveTypeVar((TypeVariable<?>) typeArgs[i], srcType, declaringClass);
-      } else if (typeArgs[i] instanceof ParameterizedType) {
-        args[i] = resolveParameterizedType((ParameterizedType) typeArgs[i], srcType, declaringClass);
-      } else if (typeArgs[i] instanceof WildcardType) {
-        args[i] = resolveWildcardType((WildcardType) typeArgs[i], srcType, declaringClass);
-      } else {
-        args[i] = typeArgs[i];
-      }
-    }
+    Type[] args = resolveTypes(typeArgs, srcType, declaringClass);
     return new ParameterizedTypeImpl(rawType, null, args);
   }
 
   private static Type resolveWildcardType(WildcardType wildcardType, Type srcType, Class<?> declaringClass) {
-    Type[] lowerBounds = resolveWildcardTypeBounds(wildcardType.getLowerBounds(), srcType, declaringClass);
-    Type[] upperBounds = resolveWildcardTypeBounds(wildcardType.getUpperBounds(), srcType, declaringClass);
+    Type[] lowerBounds = resolveTypes(wildcardType.getLowerBounds(), srcType, declaringClass);
+    Type[] upperBounds = resolveTypes(wildcardType.getUpperBounds(), srcType, declaringClass);
     return new WildcardTypeImpl(lowerBounds, upperBounds);
-  }
-
-  private static Type[] resolveWildcardTypeBounds(Type[] bounds, Type srcType, Class<?> declaringClass) {
-    Type[] result = new Type[bounds.length];
-    for (int i = 0; i < bounds.length; i++) {
-      if (bounds[i] instanceof TypeVariable) {
-        result[i] = resolveTypeVar((TypeVariable<?>) bounds[i], srcType, declaringClass);
-      } else if (bounds[i] instanceof ParameterizedType) {
-        result[i] = resolveParameterizedType((ParameterizedType) bounds[i], srcType, declaringClass);
-      } else if (bounds[i] instanceof WildcardType) {
-        result[i] = resolveWildcardType((WildcardType) bounds[i], srcType, declaringClass);
-      } else {
-        result[i] = bounds[i];
-      }
-    }
-    return result;
   }
 
   private static Type resolveTypeVar(TypeVariable<?> typeVar, Type srcType, Class<?> declaringClass) {
@@ -165,6 +148,14 @@ public class TypeParameterResolver {
     } else if (srcType instanceof ParameterizedType) {
       ParameterizedType parameterizedType = (ParameterizedType) srcType;
       clazz = (Class<?>) parameterizedType.getRawType();
+      if (clazz == declaringClass) {
+        TypeVariable<?>[] typeVars = declaringClass.getTypeParameters();
+        for (int i = 0; i < typeVars.length; i++) {
+          if (typeVar.equals(typeVars[i])) {
+            return parameterizedType.getActualTypeArguments()[i];
+          }
+        }
+      }
     } else {
       throw new IllegalArgumentException(
           "The 2nd arg must be Class or ParameterizedType, but was: " + srcType.getClass());
@@ -243,6 +234,7 @@ public class TypeParameterResolver {
   }
 
   private TypeParameterResolver() {
+    super();
   }
 
   static class ParameterizedTypeImpl implements ParameterizedType {
@@ -253,6 +245,7 @@ public class TypeParameterResolver {
     private final Type[] actualTypeArguments;
 
     public ParameterizedTypeImpl(Class<?> rawType, Type ownerType, Type[] actualTypeArguments) {
+      super();
       this.rawType = rawType;
       this.ownerType = ownerType;
       this.actualTypeArguments = actualTypeArguments;
@@ -274,9 +267,30 @@ public class TypeParameterResolver {
     }
 
     @Override
+    public int hashCode() {
+      return (ownerType == null ? 0 : ownerType.hashCode()) ^ Arrays.hashCode(actualTypeArguments) ^ rawType.hashCode();
+    }
+
+    @Override
+    public boolean equals(Object obj) {
+      if (!(obj instanceof ParameterizedType)) {
+        return false;
+      }
+      ParameterizedType other = (ParameterizedType) obj;
+      return rawType.equals(other.getRawType()) && Objects.equals(ownerType, other.getOwnerType())
+          && Arrays.equals(actualTypeArguments, other.getActualTypeArguments());
+    }
+
+    @Override
     public String toString() {
-      return "ParameterizedTypeImpl [rawType=" + rawType + ", ownerType=" + ownerType + ", actualTypeArguments="
-          + Arrays.toString(actualTypeArguments) + "]";
+      StringBuilder s = new StringBuilder().append(rawType.getName()).append("<");
+      for (int i = 0; i < actualTypeArguments.length; i++) {
+        if (i > 0) {
+          s.append(", ");
+        }
+        s.append(actualTypeArguments[i].getTypeName());
+      }
+      return s.append(">").toString();
     }
   }
 
@@ -286,6 +300,7 @@ public class TypeParameterResolver {
     private final Type[] upperBounds;
 
     WildcardTypeImpl(Type[] lowerBounds, Type[] upperBounds) {
+      super();
       this.lowerBounds = lowerBounds;
       this.upperBounds = upperBounds;
     }
@@ -299,18 +314,73 @@ public class TypeParameterResolver {
     public Type[] getUpperBounds() {
       return upperBounds;
     }
+
+    @Override
+    public int hashCode() {
+      final int prime = 31;
+      int result = 1;
+      result = prime * result + Arrays.hashCode(lowerBounds);
+      result = prime * result + Arrays.hashCode(upperBounds);
+      return result;
+    }
+
+    @Override
+    public boolean equals(Object obj) {
+      if (this == obj) {
+        return true;
+      }
+      if (!(obj instanceof WildcardTypeImpl)) {
+        return false;
+      }
+      WildcardTypeImpl other = (WildcardTypeImpl) obj;
+      return Arrays.equals(lowerBounds, other.lowerBounds) && Arrays.equals(upperBounds, other.upperBounds);
+    }
+
+    @Override
+    public String toString() {
+      StringBuilder s = new StringBuilder().append("?");
+      if (lowerBounds.length > 0) {
+        s.append(" super ").append(lowerBounds[0].getTypeName());
+      } else if (upperBounds.length > 0 && upperBounds[0] != Object.class) {
+        s.append(" extends ").append(upperBounds[0].getTypeName());
+      }
+      return s.toString();
+    }
   }
 
   static class GenericArrayTypeImpl implements GenericArrayType {
     private final Type genericComponentType;
 
     GenericArrayTypeImpl(Type genericComponentType) {
+      super();
       this.genericComponentType = genericComponentType;
     }
 
     @Override
     public Type getGenericComponentType() {
       return genericComponentType;
+    }
+
+    @Override
+    public int hashCode() {
+      return Objects.hash(genericComponentType);
+    }
+
+    @Override
+    public boolean equals(Object obj) {
+      if (this == obj) {
+        return true;
+      }
+      if (!(obj instanceof GenericArrayTypeImpl)) {
+        return false;
+      }
+      GenericArrayTypeImpl other = (GenericArrayTypeImpl) obj;
+      return Objects.equals(genericComponentType, other.genericComponentType);
+    }
+
+    @Override
+    public String toString() {
+      return new StringBuilder().append(genericComponentType.toString()).append("[]").toString();
     }
   }
 }
